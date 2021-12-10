@@ -15,7 +15,7 @@ def run_rule(
     bit_rule: np.ndarray,
     get_y_act: Callable,
     max_steps: int,
-    size: int = 149, # Size of IC
+    N: int = 149,  # Size of IC
     correct_only: bool = True,
 ):
     """
@@ -23,10 +23,10 @@ def run_rule(
     """
     r = utils.rule_size_to_r(len(bit_rule))
     while True:
-        x = utils.generate_unbiased_binary_arrs(size, 1)
+        x = utils.generate_unbiased_binary_arrs(N, 1)
         correct_classification = np.squeeze(get_y_act(x)).item()
         x = np.squeeze(x)
-        all_x = np.empty((max_steps, size), dtype=np.int8)
+        all_x = np.empty((max_steps, N), dtype=np.int8)
         for i in range(max_steps):
             x = np.array(
                 [
@@ -46,7 +46,7 @@ def run_rule(
 
 def display_rule_gif(X: np.ndarray, correct: int, output_path: Path = None):
     fig, ax = plt.subplots(figsize=(10, 10))
-    steps_to_show, size = X.shape
+    steps_to_show, N = X.shape
     iterations_per_frame = 1
     interval = 3
 
@@ -88,7 +88,7 @@ def save_rule_matrix(
     output_dir: str,
     get_y_act: Callable,
     num_images: int = 3,
-    correct_only: bool = True,
+    correct_only: bool = False,
     bit_rule: np.ndarray = None,
     rule_dir: str = None,
     max_steps: int = 256,
@@ -226,7 +226,7 @@ def plot_zone_of_chaos(
     get_y_act: Callable,
     output_dir: str,
     plt_title: str,
-    size: int = 128,
+    N: int = 149,
     max_steps: int = 256,
     r: int = 3,
     num_evals: int = 100,
@@ -241,7 +241,7 @@ def plot_zone_of_chaos(
     y = []
     for density in np.linspace(0, 1, num_evals):
         ics = utils.generate_biased_binary_arrs(
-            size, np.full((ics_per_eval,), fill_value=density)
+            N, np.full((ics_per_eval,), fill_value=density)
         )
         y_act = get_y_act(ics)
         f = utils.multip_compute_fitness(

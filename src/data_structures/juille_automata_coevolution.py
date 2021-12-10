@@ -2,14 +2,20 @@ import numpy as np
 import multiprocessing as mp
 from pathlib import Path
 import pickle
+import math
 from attr import attrs, attrib
 from typing import Callable
 from tqdm import tqdm
 
 from ..utils import utils
 from ..utils.mutations import perform_crossover, perform_mutation
+from ..resources.rules import BFO
+
 
 DEFAULT_PROCESSES = mp.cpu_count() - 1
+bfo_rule = utils.bit_string_to_numpy(
+    BFO
+)  # Used as gold standard for parity 'difficulty'
 
 
 @attrs()
@@ -20,6 +26,7 @@ class JuilleAutomataCoevolution:
 
     generations: int = attrib()
     rule_pop_size: int = attrib()
+    task: str = attrib()
     get_y_true: Callable = attrib()  # Defines what a 'correct' classification is
     generate_ics: Callable = (
         attrib()
@@ -32,14 +39,22 @@ class JuilleAutomataCoevolution:
     num_mutations: int = attrib(default=2)
     ic_generation_gap: float = attrib(default=0.05)
     rule_generation_gap: float = attrib(default=0.8)
-    n_probability_bins: int = attrib(default=20)  # Defines how to bin probabilities, updated in prob_matrix
+    n_probability_bins: int = attrib(
+        default=20
+    )  # Defines how to bin probabilities, updated in prob_matrix
 
     num_elite_rules: int = attrib(init=False)
     num_elite_ics: int = attrib(init=False)
     bins: np.ndarray = attrib(init=False)
-    total_density_pairings: np.ndarray = attrib(init=False) # All rule/IC density pairings we've seen
-    density_defeats: np.ndarray = attrib(init=False) # Int. array of how many times rule has beaten IC with given density
-    prob_matrix: np.ndarray = attrib(init=False) # (rule_density, ic_density), density_defeats / total_density_pairings
+    total_density_pairings: np.ndarray = attrib(
+        init=False
+    )  # All rule/IC density pairings we've seen
+    ic_density_defeats: np.ndarray = attrib(
+        init=False
+    )  # Int. array of how many times IC has beaten rule with given density
+    prob_matrix: np.ndarray = attrib(
+        init=False
+    )  # (rule_density, ic_density), density_defeats / total_density_pairings
 
     def __attrs_post_init__(self):
         self.num_elite_rules = int(self.rule_pop_size * self.rule_generation_gap)
@@ -48,9 +63,9 @@ class JuilleAutomataCoevolution:
             raise ValueError(f"num_elite_rules={self.num_elite_rules}")
         if self.num_elite_ics == 0:
             raise ValueError(f"num_elite_ics={self.num_elite_ics}")
-        self.bins = np.linspace(0.000001, 0.999999, num=self.n_probability_bins)
+        self.bins = np.linspace(0, 1, num=self.n_probability_bins)
         self.prob_matrix = np.empty((len(self.bins), len(self.bins)))
-        self.density_defeats = np.zeros((len(self.bins), len(self.bins)))
+        self.ic_density_defeats = np.zeros((len(self.bins), len(self.bins)))
         self.total_density_pairings = np.zeros((len(self.bins), len(self.bins)))
         self.prob_matrix.fill(0.5)
 
@@ -67,11 +82,11 @@ class JuilleAutomataCoevolution:
         return population
 
     def run(
-            self,
-            save_dir: str,
-            multiprocess: bool = False,
-            num_processes: int = DEFAULT_PROCESSES,
-            update_every: int = 2,
+        self,
+        save_dir: str,
+        multiprocess: bool = False,
+        num_processes: int = DEFAULT_PROCESSES,
+        update_every: int = 2,
     ):
         self.print_overview()
         save_dir = Path(save_dir)
@@ -124,10 +139,9 @@ class JuilleAutomataCoevolution:
                         rule_population, ics, self.max_steps, y_act, self.r
                     )
                 print(f"Mean fitness: {f.mean()}")
-            with open(save_dir / "rule_population_checkpoint.pkl", "wb") as f:
-                pickle.dump(rule_population, f)
-            with open(save_dir / "final_population.pkl", "wb") as f:
-                pickle.dump(ic_population, f)
+            self.save_results(save_dir, rule_population, ic_population)
+            with open(Path(save_dir) / "gen.txt", "w") as f:
+                f.write(str(gen))
         self.save_results(
             save_dir,
             rule_population,
@@ -135,14 +149,14 @@ class JuilleAutomataCoevolution:
         )
 
     def get_fitness(
-            self,
-            rule_population: np.ndarray,
-            ic_population: np.ndarray,
-            max_steps: int,
-            y_true: np.ndarray,
-            r: int,
-            multiprocess: bool = False,
-            num_processes: int = DEFAULT_PROCESSES,
+        self,
+        rule_population: np.ndarray,
+        ic_population: np.ndarray,
+        max_steps: int,
+        y_true: np.ndarray,
+        r: int,
+        multiprocess: bool = True,
+        num_processes: int = DEFAULT_PROCESSES,
     ):
         """
         Given a rule_population of size (n_rules, bit_rule_size) and ic_population of (ic_test_size, N),
@@ -165,53 +179,107 @@ class JuilleAutomataCoevolution:
         fitness_r = np.sum(np.multiply(w_ic, covered_r_ic), axis=1)  # (num_rules,)
 
         # IC FITNESSES
-        rule_densities = utils.calculate_densities(rule_population)
-        ic_densities = utils.calculate_densities(ic_population)
-        # Convert these to indices for lookup in prob_matrix
-        rule_prob_matrix_indices = utils.get_prob_matrix_indices(rule_densities, self.bins)
-        ic_prob_matrix_indices = utils.get_prob_matrix_indices(ic_densities, self.bins)
-        entropies = self.calculate_entropies(rule_prob_matrix_indices, ic_prob_matrix_indices)
-
         _covered_r_ic = 1 - covered_r_ic  # Complement of covered_r_ic
-        w_r = 1 / np.sum(np.multiply(_covered_r_ic, entropies, out=_covered_r_ic, where=entropies!=0), axis=1)  # (num_rules,)
-
+        if self.task == "majority":
+            rule_densities = utils.calculate_densities(rule_population)
+            ic_densities = utils.calculate_densities(ic_population)
+            # Convert these to indices for lookup in prob_matrix
+            rule_prob_matrix_indices = utils.get_prob_matrix_indices(
+                rule_densities, self.bins
+            )
+            ic_prob_matrix_indices = utils.get_prob_matrix_indices(
+                ic_densities, self.bins
+            )
+            if np.any(rule_prob_matrix_indices == -1):
+                raise ValueError("This should not happen ):")
+            if np.any(ic_prob_matrix_indices == -1):
+                raise ValueError("This should not happen ):")
+            entropies = self.calculate_entropies(
+                rule_prob_matrix_indices, ic_prob_matrix_indices
+            )
+            w_r = 1 / np.sum(
+                np.multiply(
+                    _covered_r_ic, entropies, out=_covered_r_ic, where=entropies != 0
+                ),
+                axis=1,
+            )  # (num_rules,)
+            # Update prob matrix, so next run has more accurate probabilities
+            self.update_prob_matrix(
+                rule_prob_matrix_indices, ic_prob_matrix_indices, _covered_r_ic
+            )
+        elif self.task == "parity":
+            # Define entropy as 1 / n_steps, where n_steps = steps it takes for BFO to converge
+            steps = utils.multip_compute_fitness(
+                bfo_rule.reshape(1, -1),
+                ic_population,
+                max_steps,
+                y_true,
+                r=4,
+                compute_steps=True
+            )
+            steps = steps.squeeze()
+            entropies = steps / max_steps
+            w_r = 1 / np.sum(np.multiply(_covered_r_ic, entropies, out=_covered_r_ic, where=entropies != 0), axis=1)
+        else:
+            raise ValueError(f"Unkown task type: {self.task}")
         fitness_ic = np.sum(np.multiply(w_r, _covered_r_ic.T), axis=1)  # (num_ics,)
-        print("********")
-        print("Best IC density:")
-        print(ic_densities[np.argmax(fitness_ic)])
-        print("********")
-        # Update prob matrix, so next run has more accurate probabilities
-        self.update_prob_matrix(rule_prob_matrix_indices, ic_prob_matrix_indices, covered_r_ic)
+        # print("********")
+        # print("Best IC density:")
+        # print(ic_densities[np.argmax(fitness_ic)])
+        # print("********")
         return fitness_r, fitness_ic
 
-    def calculate_entropies(self, rule_prob_matrix_indices: np.ndarray, ic_prob_matrix_indices: np.ndarray):
+    def calculate_entropies(
+        self, rule_prob_matrix_indices: np.ndarray, ic_prob_matrix_indices: np.ndarray
+    ):
         """
         E() function, described in section 4 of Juille 1998.
 
         Gets probabilities by looking up self.prob_matrix
         """
         print("Calculating entropies...")
-        entropies = np.zeros((rule_prob_matrix_indices.shape[0], ic_prob_matrix_indices.shape[0]))
+        entropies = np.zeros(
+            (rule_prob_matrix_indices.shape[0], ic_prob_matrix_indices.shape[0])
+        )
         for rule_index in range(rule_prob_matrix_indices.shape[0]):
             for ic_index in range(ic_prob_matrix_indices.shape[0]):
                 # Lookup probability of rule beating ic
-                p = self.prob_matrix[rule_prob_matrix_indices[rule_index], ic_prob_matrix_indices[ic_index]]
-                entropies[rule_index, ic_index] = np.log(2) + (p * np.log(p)) + ((1-p) * np.log(1-p))
+                p = self.prob_matrix[
+                    rule_prob_matrix_indices[rule_index],
+                    ic_prob_matrix_indices[ic_index],
+                ]
+                entropies[rule_index, ic_index] = (
+                    np.log(2) + (p * np.log(p)) + ((1 - p) * np.log(1 - p))
+                )
         return entropies
 
-
-    def update_prob_matrix(self, rule_prob_matrix_indices: np.ndarray, ic_prob_matrix_indices: np.ndarray, covered_r_ic: np.ndarray) -> None:
+    def update_prob_matrix(
+        self,
+        rule_prob_matrix_indices: np.ndarray,
+        ic_prob_matrix_indices: np.ndarray,
+        _covered_r_ic: np.ndarray,
+    ) -> None:
         """
         Updates prob_matrix, given the outcome of the latest run of evaluations.
         Used to calculate entropy in self.calculate_entropies.
         """
-        for rule_index in range(covered_r_ic.shape[0]):
-            for ic_index in range(covered_r_ic.shape[1]):
-                prob_matrix_indices = (rule_prob_matrix_indices[rule_index], ic_prob_matrix_indices[ic_index])
+        for rule_index in range(_covered_r_ic.shape[0]):
+            for ic_index in range(_covered_r_ic.shape[1]):
+                prob_matrix_indices = (
+                    rule_prob_matrix_indices[rule_index],
+                    ic_prob_matrix_indices[ic_index],
+                )
                 self.total_density_pairings[prob_matrix_indices] += 1
-                self.density_defeats[prob_matrix_indices] += covered_r_ic[rule_index, ic_index] # Adds 1 if the rule defeated the IC
+                self.ic_density_defeats[prob_matrix_indices] += _covered_r_ic[
+                    rule_index, ic_index
+                ]  # Adds 1 if the IC defeated the rule
         # Update, but if denominator is 0, keep original self.prob_matrix value (i.e. 0.5)
-        self.prob_matrix = np.divide(self.density_defeats, self.total_density_pairings, out=self.prob_matrix, where=self.total_density_pairings!=0)
+        self.prob_matrix = np.divide(
+            self.ic_density_defeats,
+            self.total_density_pairings,
+            out=self.prob_matrix,
+            where=self.total_density_pairings != 0,
+        )
 
     def print_overview(self):
         print("Beginning experiment with:")
@@ -228,10 +296,10 @@ class JuilleAutomataCoevolution:
         print(f"\t r: {self.r}")
 
     def save_results(
-            self,
-            save_dir: Path,
-            rule_population: np.ndarray,
-            ic_population: np.ndarray,
+        self,
+        save_dir: Path,
+        rule_population: np.ndarray,
+        ic_population: np.ndarray,
     ):
         print(f"Saving results to {save_dir.name}...")
         with open(save_dir / "final_rule_population.pkl", "wb") as f:

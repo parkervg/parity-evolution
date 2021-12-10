@@ -6,18 +6,18 @@ if __name__ == "__main__":
     """
     Majority problem phase rule
     """
-    make_rule_gif(
-        rule_dir="results/ga/majority/mutation_prob_runs/300gen/0.02_mutation_prob_300_gen_0",
-        get_y_act=majority_problem_y_act,
-        num_images=1,
-        correct_only=True,
-        output_path="visualizations/phase_rule.gif",
-    )
+    # make_rule_gif(
+    #     rule_dir="results/ga/majority/mutation_prob_runs/300gen/0.02_mutation_prob_300_gen_0",
+    #     get_y_act=majority_problem_y_act,
+    #     num_images=1,
+    #     correct_only=True,
+    #     output_path="visualizations/phase_rule.gif",
+    # )
     """
     Example Parity problem rule
     """
     # make_rule_gif(
-    #     rule_dir="results/ga/parity/custom_ic_generate/run0",
+    #     rule_dir="results/ga/parity/custom_ic_generate/run0_wrong_prob_matrix",
     #     get_y_act=parity_problem_y_act,
     #     num_images=3,
     #     correct_only=False,
@@ -30,7 +30,6 @@ if __name__ == "__main__":
     #     num_images=5,
     #     correct_only=False,
     # )
-
 
     # save_rule_matrix(
     #     rule_dir="results/majority/0.02_mutation_prob_300_gen",
@@ -59,21 +58,21 @@ if __name__ == "__main__":
     # line_plots(
     #     rules_dir="results/ga/parity/sanity_check",
     #     save_dir="visualizations/parity/sanity_check",
-    #     # ignore_dirs=["0.02_mutation_prob_300_gen", "run0", "run1", "run2", "run3", "run4", "run5"],
+    #     # ignore_dirs=["0.02_mutation_prob_300_gen", "run0_wrong_prob_matrix", "run1", "run2", "run3", "run4", "run5"],
     #     plt_title="Parity Problem",
     # )
     # Line plots for majority problem
     # line_plots(
     #     rules_dir="results/ga/parity/majority_ic_generate/",
     #     save_dir="visualizations/parity/majority_ic_generate",
-    #     # ignore_dirs=["0.02_mutation_prob_300_gen", "run0", "run1", "run2", "run3", "run4", "run5"],
+    #     # ignore_dirs=["0.02_mutation_prob_300_gen", "run0_wrong_prob_matrix", "run1", "run2", "run3", "run4", "run5"],
     #     plt_title="Parity Problem",
     # )
     #
     # line_plots(
     #     rules_dir="results/ga/majority/mutation_prob_runs/300gen",
     #     save_dir="visualizations/majority/300gen",
-    #     # ignore_dirs=["0.02_mutation_prob_300_gen", "run0", "run1", "run2", "run3", "run4", "run5"],
+    #     # ignore_dirs=["0.02_mutation_prob_300_gen", "run0_wrong_prob_matrix", "run1", "run2", "run3", "run4", "run5"],
     #     plt_title="Majority Problem",
     # )
     #
@@ -85,7 +84,7 @@ if __name__ == "__main__":
     #     plt_title="Parity Problem",
     # )
 
-    # plot_zone_of_chaos("results/majority/0.02_mutation_prob_0", majority_problem_y_act, output_dir="visualizations/majority", plt_title="Majority Problem")
+    plot_zone_of_chaos("results/majority/0.02_mutation_prob_0", majority_problem_y_act, output_dir="visualizations/majority", plt_title="Majority Problem")
     # plot_zone_of_chaos(
     #     "results/parity/custom_ic_generate_r4",
     #     parity_problem_y_act,

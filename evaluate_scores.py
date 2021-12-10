@@ -44,7 +44,7 @@ if __name__ == "__main__":
     elif problem_type == "parity":
         print("Using parity problem generation functions...")
         get_y_act = parity_problem_y_act
-        generate_ics = generate_ics_parity
+        generate_ics = generate_ics_majority
     else:
         raise ValueError
     evaluate_final_fitnesses(

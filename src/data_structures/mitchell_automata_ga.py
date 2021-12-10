@@ -23,7 +23,7 @@ class MitchellAutomataGA:
     """
 
     generations: int = attrib()
-    pop_size: int = attrib()
+    rule_pop_size: int = attrib()
     get_y_true: Callable = attrib()  # Defines what a 'correct' classification is
     generate_ics: Callable = (
         attrib()
@@ -31,7 +31,7 @@ class MitchellAutomataGA:
     N: int = attrib(default=149)
     max_steps: int = attrib(default=298)  # 2N as default
     r: int = attrib(default=3)
-    ic_test_size: int = attrib(default=100)
+    ic_pop_size: int = attrib(default=100)
     rule_generation_gap: float = attrib(default=0.8)
     mutation_prob: float = attrib(default=1)
     num_mutations: int = attrib(default=2)
@@ -39,7 +39,7 @@ class MitchellAutomataGA:
     num_elite: int = attrib(init=False)
 
     def __attrs_post_init__(self):
-        self.num_elite = int(self.pop_size * self.rule_generation_gap)
+        self.num_elite = int(self.rule_pop_size * self.rule_generation_gap)
 
     def _init_rule_population(self) -> np.ndarray:
         """
@@ -48,7 +48,7 @@ class MitchellAutomataGA:
         print("Initializing rules...")
         bit_len = 2 ** ((2 * self.r) + 1)
         densities = np.random.uniform(
-            size=self.pop_size
+            size=self.rule_pop_size
         )  # Sample densities from uniform distribution
         population = utils.generate_biased_binary_arrs(bit_len, densities)
         return population
@@ -66,7 +66,7 @@ class MitchellAutomataGA:
         population = self._init_rule_population()
         for gen in tqdm(range(self.generations)):
             # Create new initial conditions for each generation
-            ics = self.generate_ics(self.ic_test_size, self.N)
+            ics = self.generate_ics(self.ic_pop_size, self.N)
             # Find the 'true' classification label for the given task
             y_true = self.get_y_true(ics)
             print("*******************")
@@ -102,7 +102,7 @@ class MitchellAutomataGA:
             print("Average density of elite:")
             print(utils.calculate_densities(elite).mean())
             print()
-            population = perform_crossover(elite, elite_f, self.pop_size)
+            population = perform_crossover(elite, elite_f, self.rule_pop_size)
             population = perform_mutation(
                 population, self.num_mutations, self.mutation_prob
             )
@@ -120,20 +120,20 @@ class MitchellAutomataGA:
     def print_overview(self):
         print("Beginning experiment with:")
         print(f"\t generations: {self.generations}")
-        print(f"\t pop_size: {self.pop_size}")
+        print(f"\t rule_pop_size: {self.rule_pop_size}")
         print(f"\t get_y_true: {self.get_y_true.__name__}")
         print(f"\t generate_ics: {self.generate_ics.__name__}")
         print(f"\t N: {self.N}")
         print(f"\t max_steps: {self.max_steps}")
         print(f"\t repopulation_cutoff: {self.rule_generation_gap}")
-        print(f"\t ic_test_size: {self.ic_test_size}")
+        print(f"\t ic_pop_size: {self.ic_pop_size}")
         print(f"\t mutation_prob: {self.mutation_prob}")
         print(f"\t r: {self.r}")
 
     def save_results(
         self,
         save_dir: Path,
-        population: np.ndarray,
+        rule_population: np.ndarray,
         best_score: float,
         best_rule: np.ndarray,
         best_score_generation: int,
@@ -142,8 +142,8 @@ class MitchellAutomataGA:
         mean_densities: List[float],
     ):
         print(f"Saving results to {save_dir.name}...")
-        with open(save_dir / "final_population.pkl", "wb") as f:
-            pickle.dump(population, f)
+        with open(save_dir / "final_rule_population.pkl", "wb") as f:
+            pickle.dump(rule_population, f)
         with open(save_dir / "best_rule_data.json", "w") as f:
             json.dump(
                 {
@@ -162,8 +162,8 @@ class MitchellAutomataGA:
             json.dump(
                 {
                     "generations": self.generations,
-                    "pop_size": self.pop_size,
-                    "ic_test_size": self.ic_test_size,
+                    "pop_size": self.rule_pop_size,
+                    "ic_test_size": self.ic_pop_size,
                     "r": self.r,
                     "N": self.N,
                     "max_steps": self.max_steps,

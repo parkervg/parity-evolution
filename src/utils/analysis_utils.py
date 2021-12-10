@@ -14,7 +14,7 @@ def evaluate_final_fitnesses(
     get_y_true: Callable,
     generate_ics: Callable,
     max_steps: int = 256,
-    N: int = 128,
+    N: int = 149,
     k: int = 10,
     ic_test_size: int = 10000,
     multiprocess: bool = False,
@@ -28,14 +28,18 @@ def evaluate_final_fitnesses(
     """
     if not results_subd.is_dir():
         raise ValueError(f"Not a directory: {results_subd}")
-    for subd in Path(results_subd).iterdir():
+    if (Path(results_subd) / "final_rule_population.pkl").is_file():
+        subds = [results_subd]
+    else:
+        subds = [i for i in Path(results_subd).iterdir()]
+    for subd in subds:
         if not subd.is_dir():
             continue
-        if Path(subd / "final_population.pkl").is_file():
+        if Path(subd / "final_rule_population.pkl").is_file():
             if Path(subd / "final_fitness.pkl").is_file() and not overwrite:
                 print(f"Fitness file already exists for {subd.name}.")
                 continue
-            with open(subd / "final_population.pkl", "rb") as f:
+            with open(subd / "final_rule_population.pkl", "rb") as f:
                 population = pickle.load(f).astype(np.int8)
             print(f"Evaluating {subd.name}...")
             if k < population.shape[0]:  # If we need to filter down population first

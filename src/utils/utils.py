@@ -118,6 +118,27 @@ def run_rule(bit_rule: np.ndarray, x: np.array, max_steps: int, r: int):
 
 
 @njit
+def run_rule_return_steps(bit_rule: np.ndarray, x: np.array, max_steps: int, r: int):
+    """
+    Applies a bit rule to a given IC for specified timesteps.
+    Returns the step count it took to resolve to the correct state.
+    :param bit_rule: (rule_size,)
+    :param x: (N,), the initial condition to start from.
+    """
+    prev_x = np.full_like(x, fill_value=-1)
+    for step in range(max_steps - 1):
+        x = np.array(
+            [apply_bit_rule(bit_rule, x, cell_ix, r) for cell_ix in range(x.shape[0])]
+        )
+        if early_stop(x, prev_x):
+            return step, x
+        prev_x = np.copy(x)
+    print("Rule never resolved IC to a single state.")
+    print(x)
+    return step, x
+
+
+@njit
 def early_stop(x: np.ndarray, prev_x: np.ndarray):
     if np.all(x == prev_x):
         return True
@@ -162,23 +183,35 @@ def multip_compute_fitness(
     y_true: np.ndarray,
     r: int,
     num_processes: int = DEFAULT_PROCESSES,
-    **kwargs,  # For avg_fitness argument
+    **kwargs,  # For avg_fitness, compute_steps argument
 ):
     """
     Multiprocessed version of compute_fitness().
     """
     input_queue = JoinableQueue(maxsize=10000)
     output_queue = JoinableQueue(maxsize=10000)
-    fitness_func = partial(
-        _multip_compute_fitness,
-        ics,
-        max_steps,
-        y_true,
-        r,
-        input_queue,
-        output_queue,
-        **kwargs,
-    )
+    if not kwargs.get("compute_steps", False):
+        fitness_func = partial(
+            _multip_compute_fitness,
+            ics,
+            max_steps,
+            y_true,
+            r,
+            input_queue,
+            output_queue,
+            **kwargs,
+        )
+    else:
+        print("Computing steps...")
+        fitness_func = partial(
+            _multip_compute_steps,
+            ics,
+            max_steps,
+            y_true,
+            r,
+            input_queue,
+            output_queue,
+        )
     processes = []
     for _ in range(num_processes):
         p = Process(target=fitness_func, daemon=True)
@@ -234,6 +267,30 @@ def _multip_compute_fitness(
         output_queue.task_done()
 
 
+def _multip_compute_steps(
+    ics: np.ndarray,
+    max_steps: int,
+    y_act: np.ndarray,
+    r: int,
+    input_queue: JoinableQueue,
+    output_queue: JoinableQueue,
+) -> None:
+    """
+    This function is used to compute the number of steps it takes a perfect rule (e.g. BFO) to resolve an IC to the correct state.
+    """
+    while True:
+        bit_rule, index = input_queue.get()
+        step_counts = np.empty(
+            ics.shape[0], dtype=np.int64
+        )  # Create array with shape of num_ics to hold classification predictions
+        for ic_ix in range(ics.shape[0]):
+            step_count, x = run_rule_return_steps(bit_rule, ics[ic_ix, :], max_steps, r)
+            # assert np.all(x == y_act[ic_ix])
+            step_counts[ic_ix] = step_count
+        output_queue.put((step_counts, index))
+        output_queue.task_done()
+
+
 @njit
 def decode_final_cell_state(x: np.ndarray) -> int:
     """
@@ -269,7 +326,7 @@ def evaluate_rules(
     get_y_true: Callable,
     max_steps: int,
     n_ics: int = 10000,
-    size: int = 149,
+    N: int = 149,
     multiprocess: bool = False,
     num_processes: int = DEFAULT_PROCESSES,
 ):
@@ -280,7 +337,8 @@ def evaluate_rules(
     if population.ndim == 1:  # If it's just one rule
         population = np.expand_dims(population, axis=0)
     r = rule_size_to_r(population.shape[1])
-    ics = generate_unbiased_binary_arrs(size, n_ics)
+    ics = generate_unbiased_binary_arrs(N, n_ics)
+    print(f"Using r={r}...")
     y_act = get_y_true(ics)
     if multiprocess:
         return multip_compute_fitness(
@@ -312,8 +370,14 @@ def rule_size_to_r(rule_size: int):
 @njit(fastmath=True)
 def get_prob_matrix_indices(densities: np.ndarray, bins: np.ndarray):
     out = np.empty((densities.shape[0],), dtype=np.int64)
+    out.fill(-1)
     for density_index in range(densities.shape[0]):
         for bins_index in range(bins.shape[0]):
-            if bins[bins_index] < densities[density_index] < bins[bins_index+1]:
-                out[density_index] = bins_index
+            if out[density_index] == -1:
+                if bins_index + 1 == bins.shape[0]:
+                    out[density_index] = bins_index
+                elif (
+                    bins[bins_index] <= densities[density_index] < bins[bins_index + 1]
+                ):
+                    out[density_index] = bins_index
     return out
